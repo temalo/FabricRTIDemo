@@ -1,0 +1,72 @@
+// Use "take" to view a sample number of records in the table and check the data.
+ActiveTransformers
+| take 100
+
+external_table("transformers")
+| take 100
+
+external_table("easttransformers")
+| take 100
+
+// See how many records are in the table.
+ActiveTransformers
+| count
+
+// This query returns the number of ingestions per hour in the given table.
+ActiveTransformers
+| summarize IngestionCount = count() by bin(ingestion_time(), 1h)
+
+
+external_table("transformers")
+| join kind=innerunique ActiveTransformers on ServicePointID
+| summarize AverageKW = avg(todouble(TotalKw)), MinLowSideV = min(todouble(LowSideVoltage)),
+  MaxKVA = max(todouble(KvaRating)),MinKVA=min(todouble(KvaRating)) by City
+| render columnchart 
+
+external_table("transformers")
+| join kind=innerunique ActiveTransformers on ServicePointID
+| project TransformerID,MeterNumber,['datetime'],todouble(TotalKw),todouble(KvaRating),todouble(LowSideVoltage)
+| where TotalKw > 29.5
+| render columnchart 
+
+external_table("transformers")
+| join kind=innerunique ActiveTransformers on ServicePointID
+| project TransformerID,MeterNumber,['datetime'],todouble(TotalKw),todouble(KvaRating),todouble(LowSideVoltage)
+| where KvaRating > 144
+| render columnchart 
+
+external_table("transformers")
+| join kind=innerunique ActiveTransformers on ServicePointID
+| project TransformerID,MeterNumber,['datetime'],todouble(TotalKw),todouble(KvaRating),todouble(LowSideVoltage)
+| where KvaRating < 55
+| render columnchart 
+
+let Window = now(-10h);
+external_table("transformers")
+| join kind=innerunique ActiveTransformers on ServicePointID
+| where todatetime(['datetime']) >= Window and KvaRating < 55
+| summarize AlertCount = count()
+
+print now()
+
+let Window = now(-10d);
+external_table("transformers")
+| join kind=innerunique external_table("easttransformers") on TransformerID
+| join kind=innerunique ActiveTransformers on ServicePointID
+| project ['datetime'],MeterNumber,KvaRating,kVARating,LowSideVoltage1,LowSideVoltage
+| project-rename ReadDate=['datetime'],Meter=MeterNumber,kVA=KvaRating,RatedkVA=kVARating,LowSideVoltageRating=LowSideVoltage,LowSideVolts = LowSideVoltage1
+| where todatetime(ReadDate) >= Window and todouble(LowSideVolts) > (todouble(LowSideVoltageRating))
+
+
+external_table("transformers")
+| join kind=innerunique external_table("easttransformers") on TransformerID
+| join kind=innerunique ActiveTransformers on ServicePointID
+| count
+
+external_table("easttransformers")
+| count
+
+
+external_table("transformers")
+| join kind=innerunique external_table("easttransformers") on TransformerID
+| join kind=innerunique ActiveTransformers on ServicePointID

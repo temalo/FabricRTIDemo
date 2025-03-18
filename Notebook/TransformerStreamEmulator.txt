@@ -1,0 +1,127 @@
+import requests
+import json
+import time
+import random
+from datetime import datetime
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+import pytz
+
+# EventStream SAS Connection String
+# This is not a best practice, these secrets should be stored in Azure Key Vault or some other secure mechanism
+myconnectionstring = "<Insert Connection String Here for the Eventhouse Servicebus Connection>"
+
+# This will emulate a data stream in JSON format
+
+def fetch_api_data():
+    try:
+        schema = StructType([StructField("ServicePointID", StringType(), True)])
+
+        json_data = [
+        {"ServicePointID": "_ESRVP000001"},
+        {"ServicePointID": "_ESRVP151442"},
+        {"ServicePointID": "_ESRVP29929"},
+        {"ServicePointID": "ESRVP171966"},
+        {"ServicePointID": "ESRVP29790"},
+        {"ServicePointID": "ESRVP29924"},
+        {"ServicePointID": "ESRVP29799"},
+        {"ServicePointID": "NPE-DIDEMO-33"},
+        {"ServicePointID": "NPE-DIDEMO-07"},
+        {"ServicePointID": "NPE-DIDEMO-12"},
+        {"ServicePointID": "NPE-DIDEMO-32"},
+        {"ServicePointID": "LAF_00071"},
+        {"ServicePointID": "LAF_00070"},
+        {"ServicePointID": "LAF_00081"},
+        {"ServicePointID": "LAF_00080"},
+        {"ServicePointID": "LAF_00008"},
+        {"ServicePointID": "LAF_00111"},
+        {"ServicePointID": "NPE-DIDEMO-53"},
+        {"ServicePointID":  "ESRVP151443"},
+        {"ServicePointID":  "ESRVP151444"},
+        {"ServicePointID":  "ESRVP171966"},
+        {"ServicePointID":  "ESRVP29788"},
+        {"ServicePointID":  "ESRVP29053"},
+        {"ServicePointID":  "ESRVP29052"},
+        {"ServicePointID":  "ESRVP29051"},
+        {"ServicePointID":  "ESRVP197842"},
+        {"ServicePointID":  "ESRVP29789"},
+        {"ServicePointID":  "ESRVP29974"},
+        {"ServicePointID":  "ESRVP29891"},
+        {"ServicePointID":  "ESRVP29880"},
+        {"ServicePointID":  "ESRVP29975"},
+        {"ServicePointID": "NPE-DIDEMO-76"}
+        ]
+
+        data = json_data
+        
+        
+
+        # Convert single object response to a list for consistency
+        if isinstance(data, dict):
+            return [data]  # Wrap single dictionary in a list
+
+        return data  # Return list as-is
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data: {e}")
+        return None
+
+# Function to add timestamps in AZ time
+# You can change the TimeZone here to whatever you prefer
+def add_timestamps(data):
+    az_tz = pytz.timezone("America/Phoenix")
+    now_az = datetime.now(az_tz)    
+
+    formatted_datetime = now_az.strftime("%m/%d/%Y %I:%M:%S %p")  # MM/DD/YYYY HH:MM:SS AM/PM
+    date_column = now_az.strftime("%d-%m-%Y")  # DD-MM-YYYY
+    time_column = now_az.strftime("%H:%M:%S")  # HH:MM:SS
+
+    for record in data:
+        record["datetime"] = formatted_datetime
+        record["date"] = date_column
+        record["time"] = time_column
+        record["TotalKw"] = random.uniform(1,30)
+        record["KvaRating"] = random.uniform(20,150)
+        record["LowSideVoltage"] = random.triangular(115,260)   
+    return data
+
+# Function to send processed data to Microsoft Fabric EventStream
+def send_to_eventstream(messages, connection_string):
+    # Extract EntityPath from connection string
+    entity_path = None
+    for param in connection_string.split(';'):
+        if param.startswith('EntityPath='):
+            entity_path = param.split('=')[1]
+            break
+
+    if not entity_path:
+        raise ValueError("EntityPath not found in connection string. Please check your connection details.")
+
+    # Ensure data is always a list before sending
+    if isinstance(messages, dict):
+        messages = [messages]  # Convert single object to a list
+
+    # Establish connection to Fabric EventStream
+    servicebus_client = ServiceBusClient.from_connection_string(connection_string)
+    try:
+        with servicebus_client.get_queue_sender(entity_path) as sender:
+            # Convert messages to JSON format
+            batch_message = [ServiceBusMessage(json.dumps(msg)) for msg in messages]
+            sender.send_messages(batch_message)
+            print(f"Successfully sent {len(messages)} records to EventStream.")
+    except Exception as e:
+        print(f"Error sending messages: {e}")
+    finally:
+        servicebus_client.close()
+
+data = fetch_api_data()
+processed_data = add_timestamps(data)
+#print(processed_data)
+# Send data every 2 seconds until cancelled
+print("Starting real-time data streaming to Fabric...")
+while True:
+    data = fetch_api_data()  # Fetch data from API
+    if data:
+        processed_data = add_timestamps(data)  # Add date and time
+        send_to_eventstream(processed_data, myconnectionstring)  # Send data to EventStream
+        print(f"Sent {len(processed_data)} records at {processed_data[0]['datetime']}")
+    time.sleep(2)  # Wait for 2 seconds before fetching new data
